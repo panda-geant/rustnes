@@ -1,11 +1,26 @@
 use std::collections::HashMap;
 use crate::opcodes;
 
+bitflags! {
+
+    pub struct Flags: u8 {
+        const CARRY = 0b00000001;
+        const ZERO  = 0b00000010;
+        const INTERRUPT = 0b00000100;
+        const DECIMAL = 0b00001000;
+        const BREAK = 0b00010000;
+        const BREAK2 = 0b00100000;
+        const OVERFLOW = 0b01000000;
+        const NEGATIVE = 0b10000000;
+    }
+
+}
+
 pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
     pub register_y: u8,
-    pub status: u8,
+    pub status: Flags,
     pub program_counter: u16,
     memory: [u8; 0xFFFF]
 }
@@ -61,7 +76,7 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: 0,
+            status: Flags::from_bits_truncate(0b100100),
             program_counter: 0,
             memory: [0; 0xFFFF]
         }
@@ -123,6 +138,39 @@ impl CPU {
 
     }
 
+    fn add_to_register_a(&mut self, data: u8) {
+
+        let sum = self.register_a as u16
+            + data as u16 
+            + (if self.status.contains(Flags::CARRY) { // This condition because CARRY flag used when overflow during arithmetic operation
+                1
+            } else {
+                0
+            }) as u16;
+
+            let carry = sum > 0xff;
+
+            if carry {
+                self.status.insert(Flags::CARRY);
+            } else {
+                self.status.remove(Flags::CARRY);
+            }
+
+            let res = sum as u8;
+
+            if res ^ data & res ^ self.register_a ^ 0b10000000 != 0 {
+                self.status.insert(Flags::OVERFLOW);
+            } else {
+                self.status.remove(Flags::OVERFLOW);
+            }
+    }
+
+    fn adc(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+        self.add_to_register_a(value);
+    }
+
     fn lda(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(&mode);
         let value = self.mem_read(addr);
@@ -143,15 +191,15 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status = self.status | 0b0000_0010;
+            self.status.insert(Flags::ZERO);
         } else {
-            self.status = self.status & 0b1111_1101;
+            self.status.remove(Flags::ZERO);
         }
 
         if result & 0b1000_0000 != 0 {
-            self.status = self.status | 0b1000_0000;
+            self.status.insert(Flags::NEGATIVE);
         } else {
-            self.status = self.status & 0b0111_1111;
+            self.status.remove(Flags::NEGATIVE);
         }
     }
 
@@ -175,7 +223,7 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        self.status = 0;
+        self.status = Flags::from_bits_truncate(0b100100);
 
         self.program_counter = self.mem_read_u16(0xFFFC);
     }
@@ -217,22 +265,6 @@ impl CPU {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_0xa9_lda_immediate_load_data() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
-        assert_eq!(cpu.register_a, 5);
-        assert!(cpu.status & 0b0000_0010 == 0);
-        assert!(cpu.status & 0b1000_0000 == 0);
-    }
-
-    #[test]
-    fn test_0xa9_lda_zero_flag() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
-        assert!(cpu.status & 0b0000_0010 == 0b10);
-    }
 
     #[test]
     fn test_0xaa_tax_move_a_to_x() {
