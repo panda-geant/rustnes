@@ -138,6 +138,11 @@ impl CPU {
 
     }
 
+    fn set_register_a(&mut self, data: u8) {
+        self.register_a = data;
+        self.update_zero_and_negative_flags(self.register_a);
+    }
+
     fn add_to_register_a(&mut self, data: u8) {
 
         let sum = self.register_a as u16
@@ -163,12 +168,48 @@ impl CPU {
             } else {
                 self.status.remove(Flags::OVERFLOW);
             }
+
+            self.set_register_a(res);
     }
 
     fn adc(&mut self, mode: &AddressingMode) {
         let address = self.get_operand_address(mode);
         let value = self.mem_read(address);
         self.add_to_register_a(value);
+    }
+
+    fn and(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+        self.set_register_a(value & self.register_a);
+    }
+
+    fn asl_acc(&mut self) {
+        let mut data = self.register_a;
+
+        if data >> 7 == 1 {
+            self.status.insert(Flags::CARRY);
+        } else {
+            self.status.remove(Flags::CARRY);
+        }
+
+        data = data << 1;
+        self.set_register_a(data);
+    }
+
+    fn asl(&mut self, mode: &AddressingMode) -> u8 {
+        let address = self.get_operand_address(mode);
+        let mut data = self.mem_read(address);
+        if data >> 7 == 1 {
+            self.status.insert(Flags::CARRY);
+        } else {
+            self.status.remove(Flags::CARRY);
+        }
+
+        data = data << 1;
+        self.mem_write(address, data);
+        self.update_zero_and_negative_flags(data);
+        data
     }
 
     fn lda(&mut self, mode: &AddressingMode) {
@@ -239,6 +280,23 @@ impl CPU {
             let opcode = opcodes.get(&code).expect(&format!("OpCode {:x} is not recognized", code));
 
             match code {
+                /* ADC */
+                0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
+                    self.adc(&opcode.mode);
+                }
+
+                /* AND */
+                0x29 | 0x25 | 0x35 | 0x2d | 0x3d | 0x39 | 0x21 | 0x31 => {
+                    self.and(&opcode.mode);
+                }
+
+                0x0a => self.asl_acc(),
+
+                /* ASL */
+                0x06 | 0x16 | 0x0e | 0x1e => {
+                    self.asl(&opcode.mode);
+                }
+
                 /* LDA */
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => {
                     self.lda(&opcode.mode);
