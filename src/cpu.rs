@@ -239,10 +239,38 @@ impl CPU {
     }
 
     fn rol_acc(&mut self) {
+        let mut data = self.register_a;
+        let carry_cond = data >> 7 == 1;
 
+        if self.status.contains(Flags::CARRY) {
+            data = (data << 1) as u8  | 0b00000001;
+        } else {
+            data = (data << 1) as u8;
+        }
+
+        self.status.remove(Flags::CARRY);
+
+        if carry_cond {
+            self.status.insert(Flags::CARRY);
+        }
+        self.set_a(data);
     }
 
     fn ror_acc(&mut self) {
+        let mut data = self.register_a;
+        let carry_cond = data & 0b00000001 == 1;
+
+        if self.status.contains(Flags::CARRY) {
+            data = data >> 1 | 0b10000000;
+        } else {
+            data = data >> 1;
+        }
+
+        self.status.remove(Flags::CARRY);
+
+        if carry_cond {
+            self.status.insert(Flags::CARRY);
+        }
 
     }
 
@@ -261,16 +289,64 @@ impl CPU {
         data
     }
 
-    fn lsr(&mut self, mode: &AddressingMode) {
+    fn lsr(&mut self, mode: &AddressingMode) -> u8 {
+        let address = self.get_operand_address(mode);
+        let mut data = self.mem_read(address);
 
+        if data & 0b00000001 == 1 {
+            self.status.insert(Flags::CARRY);
+        } else {
+            self.status.remove(Flags::CARRY);
+        }
+
+        data = data >> 1;
+        self.mem_write(address, data);
+        self.update_z_n_flags(data);
+        data
     }
 
-    fn rol(&mut self, mode: &AddressingMode) {
+    fn rol(&mut self, mode: &AddressingMode) -> u8{
+        let address = self.get_operand_address(mode);
+        let mut data = self.mem_read(address);
 
+        let carry_cond = data >> 7 == 1;
+
+        if self.status.contains(Flags::CARRY) {
+            data = (data << 1) as u8  | 0b00000001;
+        } else {
+            data = (data << 1) as u8;
+        }
+
+        self.status.remove(Flags::CARRY);
+
+        if carry_cond {
+            self.status.insert(Flags::CARRY);
+        }
+        self.mem_write(address, data);
+        self.update_z_n_flags(data);
+        data
     }
 
-    fn ror(&mut self, mode: &AddressingMode) {
+    fn ror(&mut self, mode: &AddressingMode) -> u8{
+        let address = self.get_operand_address(mode);
+        let mut data = self.mem_read(address);
 
+        let carry_cond = data & 0b00000001 == 1;
+
+        if self.status.contains(Flags::CARRY) {
+            data = data >> 1 | 0b10000000;
+        } else {
+            data = data >> 1;
+        }
+
+        self.status.remove(Flags::CARRY);
+
+        if carry_cond {
+            self.status.insert(Flags::CARRY);
+        }
+        self.mem_write(address, data);
+        self.update_z_n_flags(data);
+        data
     }
 
     fn lda(&mut self, mode: &AddressingMode) {
