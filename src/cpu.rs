@@ -9,7 +9,7 @@ bitflags! {
         const INTERRUPT = 0b00000100;
         const DECIMAL = 0b00001000;
         const BREAK = 0b00010000;
-        const BREAK2 = 0b00100000;
+        const BREAKBIS = 0b00100000;
         const OVERFLOW = 0b01000000;
         const NEGATIVE = 0b10000000;
     }
@@ -21,6 +21,7 @@ pub struct CPU {
     pub register_x: u8,
     pub register_y: u8,
     pub status: Flags,
+    pub stack_pointer: u8,
     pub program_counter: u16,
     memory: [u8; 0xFFFF]
 }
@@ -77,6 +78,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: Flags::from_bits_truncate(0b100100),
+            stack_pointer: 0,
             program_counter: 0,
             memory: [0; 0xFFFF]
         }
@@ -138,12 +140,12 @@ impl CPU {
 
     }
 
-    fn set_register_a(&mut self, data: u8) {
+    fn set_a(&mut self, data: u8) {
         self.register_a = data;
-        self.update_zero_and_negative_flags(self.register_a);
+        self.update_z_n_flags(self.register_a);
     }
 
-    fn add_to_register_a(&mut self, data: u8) {
+    fn add_to_a(&mut self, data: u8) {
 
         let sum = self.register_a as u16
             + data as u16 
@@ -169,19 +171,19 @@ impl CPU {
                 self.status.remove(Flags::OVERFLOW);
             }
 
-            self.set_register_a(res);
+            self.set_a(res);
     }
 
     fn adc(&mut self, mode: &AddressingMode) {
         let address = self.get_operand_address(mode);
         let value = self.mem_read(address);
-        self.add_to_register_a(value);
+        self.add_to_a(value);
     }
 
     fn and(&mut self, mode: &AddressingMode) {
         let address = self.get_operand_address(mode);
         let value = self.mem_read(address);
-        self.set_register_a(value & self.register_a);
+        self.set_a(value & self.register_a);
     }
 
     fn asl_acc(&mut self) {
@@ -194,7 +196,7 @@ impl CPU {
         }
 
         data = data << 1;
-        self.set_register_a(data);
+        self.set_a(data);
     }
 
     fn asl(&mut self, mode: &AddressingMode) -> u8 {
@@ -208,7 +210,7 @@ impl CPU {
 
         data = data << 1;
         self.mem_write(address, data);
-        self.update_zero_and_negative_flags(data);
+        self.update_z_n_flags(data);
         data
     }
 
@@ -217,7 +219,7 @@ impl CPU {
         let value = self.mem_read(addr);
 
         self.register_a = value;
-        self.update_zero_and_negative_flags(self.register_a);
+        self.update_z_n_flags(self.register_a);
     }
 
     fn sta(&mut self, mode: &AddressingMode) {
@@ -227,10 +229,10 @@ impl CPU {
 
     fn tax(&mut self) {
         self.register_x = self.register_a;
-        self.update_zero_and_negative_flags(self.register_x);
+        self.update_z_n_flags(self.register_x);
     }
 
-    fn update_zero_and_negative_flags(&mut self, result: u8) {
+    fn update_z_n_flags(&mut self, result: u8) {
         if result == 0 {
             self.status.insert(Flags::ZERO);
         } else {
@@ -246,9 +248,32 @@ impl CPU {
 
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
-        self.update_zero_and_negative_flags(self.register_x);
+        self.update_z_n_flags(self.register_x);
     }
 
+    fn b(&mut self, cond: bool) {
+        if cond {
+            let curr_at_counter = self.mem_read(self.program_counter) as i8;
+            let address = self.program_counter.wrapping_add(1).wrapping_add(curr_at_counter as u16);
+
+            self.program_counter = address;
+        }
+    }
+
+    fn bit(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let data = self.mem_read(address);
+
+        if self.register_a & data == 0 {
+            self.status.insert(Flags::ZERO);
+        } else {
+            self.status.remove(Flags::ZERO);
+        }
+
+        self.status.set(Flags::NEGATIVE , data & 0b10000000 > 0);
+        self.status.set(Flags::OVERFLOW , data & 0b01000000 > 0);
+    }
+    
     pub fn load_and_run(&mut self, program: Vec<u8>) {
         self.load(program);
         self.reset();
@@ -306,6 +331,17 @@ impl CPU {
                 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 => {
                     self.sta(&opcode.mode);
                 }
+
+                0x90 => self.b(!self.status.contains(Flags::CARRY)),
+                0xb0 => self.b(self.status.contains(Flags::CARRY)),
+                0xf0 => self.b(self.status.contains(Flags::ZERO)),
+                0x30 => self.b(self.status.contains(Flags::NEGATIVE)),
+                0xd0 => self.b(!self.status.contains(Flags::ZERO)),
+                0x10 => self.b(!self.status.contains(Flags::NEGATIVE)),
+                0x50 => self.b(!self.status.contains(Flags::OVERFLOW)),
+                0x70 => self.b(self.status.contains(Flags::OVERFLOW)),
+                
+                0x24 | 0x2c => self.bit(&opcode.mode),
                 
                 0xAA => self.tax(),
                 0xe8 => self.inx(),
