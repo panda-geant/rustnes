@@ -186,6 +186,32 @@ impl CPU {
         self.set_a(value & self.register_a);
     }
 
+    fn bit(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let data = self.mem_read(address);
+
+        if self.register_a & data == 0 {
+            self.status.insert(Flags::ZERO);
+        } else {
+            self.status.remove(Flags::ZERO);
+        }
+
+        self.status.set(Flags::NEGATIVE , data & 0b10000000 > 0);
+        self.status.set(Flags::OVERFLOW , data & 0b01000000 > 0);
+    }
+
+    fn eor(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+        self.set_a(value ^ self.register_a);
+    }
+
+    fn ora(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+        self.set_a(value | self.register_a);
+    }
+   
     fn asl_acc(&mut self) {
         let mut data = self.register_a;
 
@@ -197,6 +223,27 @@ impl CPU {
 
         data = data << 1;
         self.set_a(data);
+    }
+
+    fn lsr_acc(&mut self) {
+        let mut data = self.register_a;
+
+        if data & 0b00000001 == 1 {
+            self.status.insert(Flags::CARRY);
+        } else {
+            self.status.remove(Flags::CARRY);
+        }
+
+        data = data >> 1;
+        self.set_a(data);
+    }
+
+    fn rol_acc(&mut self) {
+
+    }
+
+    fn ror_acc(&mut self) {
+
     }
 
     fn asl(&mut self, mode: &AddressingMode) -> u8 {
@@ -214,12 +261,39 @@ impl CPU {
         data
     }
 
+    fn lsr(&mut self, mode: &AddressingMode) {
+
+    }
+
+    fn rol(&mut self, mode: &AddressingMode) {
+
+    }
+
+    fn ror(&mut self, mode: &AddressingMode) {
+
+    }
+
     fn lda(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(&mode);
         let value = self.mem_read(addr);
 
-        self.register_a = value;
-        self.update_z_n_flags(self.register_a);
+        self.set_a(value);
+    }
+
+    fn ldx(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+
+        self.register_x = value;
+        self.update_z_n_flags(self.register_x);
+    }
+
+    fn ldy(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+
+        self.register_y = value;
+        self.update_z_n_flags(self.register_y);
     }
 
     fn sta(&mut self, mode: &AddressingMode) {
@@ -227,9 +301,14 @@ impl CPU {
         self.mem_write(addr, self.register_a);
     }
 
-    fn tax(&mut self) {
-        self.register_x = self.register_a;
-        self.update_z_n_flags(self.register_x);
+    fn stx(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        self.mem_write(address, self.register_x);
+    }
+
+    fn sty(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        self.mem_write(address, self.register_y);
     }
 
     fn update_z_n_flags(&mut self, result: u8) {
@@ -258,20 +337,6 @@ impl CPU {
 
             self.program_counter = address;
         }
-    }
-
-    fn bit(&mut self, mode: &AddressingMode) {
-        let address = self.get_operand_address(mode);
-        let data = self.mem_read(address);
-
-        if self.register_a & data == 0 {
-            self.status.insert(Flags::ZERO);
-        } else {
-            self.status.remove(Flags::ZERO);
-        }
-
-        self.status.set(Flags::NEGATIVE , data & 0b10000000 > 0);
-        self.status.set(Flags::OVERFLOW , data & 0b01000000 > 0);
     }
     
     pub fn load_and_run(&mut self, program: Vec<u8>) {
@@ -310,27 +375,73 @@ impl CPU {
                     self.adc(&opcode.mode);
                 }
 
-                /* AND */
+                /* Logic */
+
                 0x29 | 0x25 | 0x35 | 0x2d | 0x3d | 0x39 | 0x21 | 0x31 => {
                     self.and(&opcode.mode);
                 }
 
-                0x0a => self.asl_acc(),
+                0x24 | 0x2c => self.bit(&opcode.mode),
+                
+                0x49 | 0x4d | 0x5d | 0x59 | 0x45 | 0x55 | 0x41 | 0x51 => {
+                    self.eor(&opcode.mode);
+                }
 
-                /* ASL */
+                0x09 | 0x0d | 0x1d | 0x19 | 0x05 | 0x15 | 0x01 | 0x11 => {
+                    self.ora(&opcode.mode);
+                }
+
+                /* Shift */
+
+                0x0a => self.asl_acc(),
+                0x4a => self.lsr_acc(),
+                0x2a => self.rol_acc(),
+                0x6a => self.ror_acc(),
+
                 0x06 | 0x16 | 0x0e | 0x1e => {
                     self.asl(&opcode.mode);
                 }
 
-                /* LDA */
+                0x4e | 0x5e | 0x46 | 0x56 => {
+                    self.lsr(&opcode.mode);
+                }
+
+                0x2e | 0x3e | 0x26 | 0x36 => {
+                    self.rol(&opcode.mode);
+                }
+
+                0x6e | 0x7e | 0x66 | 0x76 => {
+                    self.ror(&opcode.mode);
+                }
+
+
+                /* Load */
+
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => {
                     self.lda(&opcode.mode);
                 }
 
-                /* STA */
+                0xa2 | 0xae | 0xbe | 0xa6 | 0xb6 => {
+                    self.ldx(&opcode.mode);
+                }
+
+                0xa0 | 0xac | 0xbc | 0xa4 | 0xb4 => {
+                    self.ldy(&opcode.mode);
+                }
+
                 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 => {
                     self.sta(&opcode.mode);
                 }
+
+                0x8e | 0x86 | 0x96 => {
+                    self.stx(&opcode.mode);
+                }
+
+                0x8c | 0x84 | 0x94 => {
+                    self.sty(&opcode.mode);
+                }
+
+                /* Branch */
 
                 0x90 => self.b(!self.status.contains(Flags::CARRY)),
                 0xb0 => self.b(self.status.contains(Flags::CARRY)),
@@ -340,10 +451,47 @@ impl CPU {
                 0x10 => self.b(!self.status.contains(Flags::NEGATIVE)),
                 0x50 => self.b(!self.status.contains(Flags::OVERFLOW)),
                 0x70 => self.b(self.status.contains(Flags::OVERFLOW)),
+
+                /* Flags */
+
+                0x18 => self.status.remove(Flags::CARRY),
+                0xd8 => self.status.remove(Flags::DECIMAL),
+                0x58 => self.status.remove(Flags::INTERRUPT),
+                0xb8 => self.status.remove(Flags::OVERFLOW),
+                0x38 => self.status.insert(Flags::CARRY),
+                0xf8 => self.status.insert(Flags::DECIMAL),
+                0x78 => self.status.insert(Flags::INTERRUPT),
                 
-                0x24 | 0x2c => self.bit(&opcode.mode),
-                
-                0xAA => self.tax(),
+                /* Trans */
+
+                0xaa => {
+                    self.register_x = self.register_a;
+                    self.update_z_n_flags(self.register_x);
+                }
+
+                0xa8 => {
+                    self.register_y = self.register_a;
+                    self.update_z_n_flags(self.register_y);
+                }
+
+                0xba => {
+                    self.register_x = self.stack_pointer;
+                    self.update_z_n_flags(self.register_x);
+                }
+
+                0x8a => {
+                    self.set_a(self.register_x);
+                }
+
+                0x9a => {
+                    self.stack_pointer = self.register_x;
+                    self.update_z_n_flags(self.stack_pointer);
+                }
+
+                0x98 => {
+                    self.set_a(self.register_y);
+                }
+
                 0xe8 => self.inx(),
                 0x00 => return,
                 _ => todo!(),
