@@ -16,6 +16,9 @@ bitflags! {
 
 }
 
+const STACK: u16 = 0x0100;
+const STACK_R: u8 = 0xfd;
+
 pub struct CPU {
     pub register_a: u8,
     pub register_x: u8,
@@ -78,7 +81,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: Flags::from_bits_truncate(0b100100),
-            stack_pointer: 0,
+            stack_pointer: STACK_R,
             program_counter: 0,
             memory: [0; 0xFFFF]
         }
@@ -174,10 +177,71 @@ impl CPU {
             self.set_a(res);
     }
 
+    fn stack_pop(&mut self) -> u8 {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.mem_read((STACK as u16) + self.stack_pointer as u16)
+    }
+
+    fn stack_push(&mut self, data: u8) {
+        self.mem_write((STACK as u16) + self.stack_pointer as u16, data);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1)
+    }
+
+    fn stack_push_u16(&mut self, data: u16) {
+        let hi = (data >> 8) as u8;
+        let lo = (data & 0xff) as u8;
+        self.stack_push(hi);
+        self.stack_push(lo);
+    }
+
+    fn stack_pop_u16(&mut self) -> u16 {
+        let lo = self.stack_pop() as u16;
+        let hi = self.stack_pop() as u16;
+
+        hi << 8 | lo
+    }
+
+    fn php(&mut self) {
+        let mut status_flags = self.status.clone();
+        status_flags.insert(Flags::BREAK);
+        status_flags.insert(Flags::BREAKBIS);
+        self.stack_push(status_flags.bits());
+    }
+
+    fn pla(&mut self) {
+        let stack_data = self.stack_pop();
+        self.set_a(stack_data);
+    }
+
+    fn plp(&mut self) {
+        self.status.bits = self.stack_pop();
+        self.status.remove(Flags::BREAK);
+        self.status.remove(Flags::BREAKBIS);
+    }
+
     fn adc(&mut self, mode: &AddressingMode) {
         let address = self.get_operand_address(mode);
         let value = self.mem_read(address);
         self.add_to_a(value);
+    }
+
+    fn cmp(&mut self, mode: &AddressingMode, comparing_value: u8) {
+        let address = self.get_operand_address(mode);
+        let value = self.mem_read(address);
+
+        if value <= comparing_value {
+            self.status.insert(Flags::CARRY);
+        } else {
+            self.status.remove(Flags::CARRY);
+        }
+
+        self.update_z_n_flags(comparing_value.wrapping_sub(value));
+    }
+
+    fn sbc(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let data = self.mem_read(address) as i8;
+        self.add_to_a(data.wrapping_neg().wrapping_sub(1) as u8); // 1 and not ~C because the add_to_a take care of compensing
     }
 
     fn and(&mut self, mode: &AddressingMode) {
@@ -401,9 +465,40 @@ impl CPU {
         }
     }
 
+    fn dec(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let data = self.mem_read(address).wrapping_sub(1);
+
+        self.mem_write(address, data);
+        self.update_z_n_flags(data);
+    }
+
+    fn dex(&mut self) {
+        self.register_x = self.register_x.wrapping_sub(1);
+        self.update_z_n_flags(self.register_x);
+    }
+
+    fn dey(&mut self) {
+        self.register_y = self.register_y.wrapping_sub(1);
+        self.update_z_n_flags(self.register_y);
+    }
+
+    fn inc(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        let data = self.mem_read(address).wrapping_add(1);
+
+        self.mem_write(address, data);
+        self.update_z_n_flags(data);
+    }
+
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
         self.update_z_n_flags(self.register_x);
+    }
+
+    fn iny(&mut self) {
+        self.register_y = self.register_y.wrapping_add(1);
+        self.update_z_n_flags(self.register_y)
     }
 
     fn b(&mut self, cond: bool) {
@@ -430,6 +525,7 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
+        self.stack_pointer = STACK_R;
         self.status = Flags::from_bits_truncate(0b100100);
 
         self.program_counter = self.mem_read_u16(0xFFFC);
@@ -446,10 +542,35 @@ impl CPU {
             let opcode = opcodes.get(&code).expect(&format!("OpCode {:x} is not recognized", code));
 
             match code {
-                /* ADC */
+
+                /* Arith */
+
                 0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
                     self.adc(&opcode.mode);
                 }
+
+                0xc9 | 0xcd | 0xdd | 0xd9 | 0xc5 | 0xd5 | 0xc1 | 0xd1 => {
+                    self.cmp(&opcode.mode, self.register_a);
+                }
+
+                0xe0 | 0xec | 0xe4 => {
+                    self.cmp(&opcode.mode, self.register_x);
+                }
+
+                0xc0 | 0xcc | 0xc4 => {
+                    self.cmp(&opcode.mode, self.register_y);
+                }
+
+                0xe9 | 0xed | 0xfd | 0xf9 | 0xe5 | 0xf5 | 0xe1 | 0xf1 => {
+                    self.sbc(&opcode.mode);
+                }
+
+                /* Stack */
+
+                0x48 => self.stack_push(self.register_a),
+                0x08 => self.php(),
+                0x68 => self.pla(),
+                0x28 => self.plp(),
 
                 /* Logic */
 
@@ -568,7 +689,59 @@ impl CPU {
                     self.set_a(self.register_y);
                 }
 
+                /* Inc */
+
+                0xce | 0xde | 0xc6 | 0xd6 => {
+                    self.dec(&opcode.mode);
+                }
+
+                0xee | 0xfe | 0xe6 | 0xf6 => {
+                    self.inc(&opcode.mode);
+                }
+
+                0xca => self.dex(),
+                0x88 => self.dey(),
                 0xe8 => self.inx(),
+                0xc8 => self.iny(),
+
+                /* Ctrl */
+
+                0x4c => {
+                    let mem_address = self.mem_read_u16(self.program_counter);
+                    self.program_counter = mem_address;
+                }
+
+                0x6c => {
+                    let mem_address = self.mem_read_u16(self.program_counter);
+                    let reference = if mem_address & 0x00FF == 0x00FF {
+                        let lo = self.mem_read(mem_address);
+                        let hi = self.mem_read(mem_address & 0xFF00);
+                        (hi as u16) << 8 | (lo as u16)
+                    } else {
+                        self.mem_read_u16(mem_address)
+                    };
+
+                    self.program_counter = reference;
+                }
+
+                0x20 => {
+                    self.stack_push_u16(self.program_counter + 2 - 1);
+                    let target = self.mem_read_u16(self.program_counter);
+                    self.program_counter = target
+                }
+
+                0x40 => {
+                    self.status.bits = self.stack_pop();
+                    self.status.remove(Flags::BREAK);
+                    self.status.insert(Flags::BREAKBIS);
+
+                    self.program_counter = self.stack_pop_u16();
+                }
+
+                0x60 => {
+                    self.program_counter = self.stack_pop_u16() + 1;
+                }
+
                 0x00 => return,
                 _ => todo!(),
             }
