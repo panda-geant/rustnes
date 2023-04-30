@@ -6,3 +6,5 @@ authors = ["marius"]
 [dependencies]
 lazy_static = "1.4.0"
 bitflags = "1.2.1"
+sdl2 = "0.35"
+rand = "0.8.5"

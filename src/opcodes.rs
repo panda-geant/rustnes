@@ -229,6 +229,9 @@ lazy_static! {
         OpCode::new(0x68, "PLA", 1, 4, AddressingMode::NoneAddressing),
         OpCode::new(0x28, "PLP", 1, 4, AddressingMode::NoneAddressing),
 
+        /* NOP */
+        OpCode::new(0xea, "NOP", 1, 2, AddressingMode::NoneAddressing),
+
     ];
 
 
