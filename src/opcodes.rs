@@ -232,6 +232,25 @@ lazy_static! {
         /* NOP */
         OpCode::new(0xea, "NOP", 1, 2, AddressingMode::NoneAddressing),
 
+        /* Unoficial */
+
+        OpCode::new(0x0b, "*ANC", 2, 2, AddressingMode::Immediate),
+        OpCode::new(0x2b, "*ANC", 2, 2, AddressingMode::Immediate),
+
+        OpCode::new(0x87, "*SAX", 2, 3, AddressingMode::ZeroPage),
+        OpCode::new(0x97, "*SAX", 2, 4, AddressingMode::ZeroPage_Y),
+        OpCode::new(0x83, "*SAX", 2, 6, AddressingMode::Indirect_X),
+        OpCode::new(0x8f, "*SAX", 3, 4, AddressingMode::Absolute),
+
+        OpCode::new(0x6b, "*ARR", 2, 2, AddressingMode::Immediate),
+
+        OpCode::new(0x4b, "*ASR", 2, 2, AddressingMode::Immediate),
+
+        OpCode::new(0xab, "*LXA", 2, 2, AddressingMode::Immediate),
+
+        OpCode::new(0x9f, "*SHA", 3, 5, AddressingMode::Absolute_Y),
+        OpCode::new(0x93, "*SHA", 2, 6, AddressingMode::Indirect_Y),
+
     ];
 
 
